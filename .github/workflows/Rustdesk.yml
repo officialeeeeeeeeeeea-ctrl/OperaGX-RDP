@@ -40,8 +40,9 @@ jobs:
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           Invoke-WebRequest -Uri $url -OutFile $dst -UserAgent "Mozilla/5.0"
           
-          Write-Host "Executing silent compilation sequence..."
-          Start-Process $dst -ArgumentList "--install-service" -Wait
+          Write-Host "Executing silent compilation and physical system deployment..."
+          # Crucial fix: --install forces it to create the 'C:\Program Files\RustDesk' directory structure
+          Start-Process $dst -ArgumentList "--install" -Wait
           Start-Sleep -Seconds 10
           Remove-Item $dst -ErrorAction SilentlyContinue
 
@@ -51,7 +52,11 @@ jobs:
           $rdExe = "C:\Program Files\RustDesk\rustdesk.exe"
           
           if (Test-Path $rdExe) {
+              # Pass password direct to installed binary to match System contexts
               Start-Process -FilePath $rdExe -ArgumentList "--password", "${{ env.RUSTDESK_PASS }}" -Wait
+          } else {
+              Write-Error "CRITICAL: RustDesk binary not found in Program Files!"
+              exit 1
           }
           
           New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableUIADesktopToggle" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
