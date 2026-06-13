@@ -49,9 +49,11 @@ jobs:
 
       - name: Start Services & Verify Handshake
         run: |
-          Write-Host "Starting Internal Bridge..."
-          Start-Process websockify -ArgumentList "8080 localhost:5900 --web C:\noVNC"
-          # Core Fix 1: Allow websockify a brief moment to initialize its listeners completely
+          Write-Host "Locating and launching explicit Websockify engine..."
+          # Locates the exact global npm execution path for websockify to ensure it boots on Windows
+          $WebsockifyPath = (Get-Command websockify).Source
+          Start-Process cmd.exe -ArgumentList "/c `"$WebsockifyPath`" 8080 localhost:5900 --web C:\noVNC" -RedirectStandardError "$env:TEMP\websockify_err.log"
+          
           Start-Sleep -Seconds 5
           
           Write-Host "Verifying port 8080 handshake..."
@@ -62,11 +64,17 @@ jobs:
               $retries++
           }
           
+          # Real-time debugger: If the port still isn't open, dump the error log to the console
+          if (-not (Test-NetConnection -ComputerName 127.0.0.1 -Port 8080).TcpTestSucceeded) {
+              Write-Host "--- WEBSOCKIFY ERROR LOG DUMP ---"
+              Get-Content "$env:TEMP\websockify_err.log" -ErrorAction SilentlyContinue
+              Write-Error "CRITICAL: Port 8080 never opened because Websockify failed to execute."
+          }
+          
           Write-Host "Launching Cloudflare Tunnel..."
           $LogFile = "$env:TEMP\tunnel.log"
           Start-Process .\tunnel.exe -ArgumentList "tunnel", "--url", "http://127.0.0.1:8080" -RedirectStandardError $LogFile
           
-          # Core Fix 2: Extended delay to ensure Cloudflare completely registers its virtual edge connections
           Write-Host "Stabilizing connection routes..."
           Start-Sleep -Seconds 20
           
