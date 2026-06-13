@@ -59,8 +59,10 @@ jobs:
 
       - name: Deploy Web Interface & Dynamic Gateway Engines
         run: |
-          pip install websockify --quiet
-          npm install -g localtunnel --silent
+          # Strip out all interactive terminal elements, progress bars, and warnings to prevent stalling
+          python -m pip install websockify --quiet --no-input --disable-pip-version-check --no-color --progress-bar off
+          npm install -g localtunnel --silent --no-fund --no-audit --non-interactive
+          
           New-Item -ItemType Directory -Path "C:\noVNC" -Force
           Invoke-WebRequest -Uri "https://github.com/novnc/noVNC/archive/refs/tags/v1.5.0.zip" -OutFile "novnc.zip"
           Expand-Archive -Path "novnc.zip" -DestinationPath "C:\noVNC" -Force
