@@ -94,52 +94,44 @@ jobs:
           $Shortcut.Arguments = "https://www.opera.com/gx/forsaken --no-first-run --enable-features=GXRewards,GXRewardsSidebarItem --with-feature:gx-rewards=1"
           $Shortcut.Save()
 
-      - name: Launch Components, Push Opera to Tray, and Lock RustDesk on Top
+      - name: Sequential Desktop Rendering and Focus Enforcement
         run: |
-          # 1. Fire up RustDesk
-          $rdExe = "C:\Program Files\RustDesk\rustdesk.exe"
-          Start-Process -FilePath $rdExe -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 3
-
-          # 2. Launch Opera GX using your shortcut setup
+          # 1. Open Opera GX first to let it consume its aggressive pop-up cycle
+          Write-Host "Opening promotional browser layout background..."
           $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
           Start-Process "$publicDesktop\Opera GX Browser.lnk"
-          Start-Sleep -Seconds 5
+          Start-Sleep -Seconds 8
 
-          # 3. Load user32 API signatures for window adjustments
+          # 2. Launch RustDesk second so it draws on top of the browser window
+          Write-Host "Opening main RustDesk portal..."
+          $rdExe = "C:\Program Files\RustDesk\rustdesk.exe"
+          Start-Process -FilePath $rdExe -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 6
+
+          # 3. Import Windows API to dynamically adjust window placement and size properties
           $signature = @'
-          [DllImport("user32.dll", SetLastError = true)]
-          [return: MarshalAs(UnmanagedType.Bool)]
-          public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-          
           [DllImport("user32.dll")]
           public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+          
+          [DllImport("user32.dll", SetLastError = true)]
+          public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
           '@
-          $win32 = Add-Type -MemberDefinition $signature -Name "WindowLayerUtil" -Namespace "Win32" -PassThru
+          $win32 = Add-Type -MemberDefinition $signature -Name "LayoutAdjustmentUtil" -Namespace "Win32" -PassThru
 
-          # 4. Target and explicitly minimize Opera GX window to clear the view
-          Write-Host "Tucking Opera GX away into the taskbar..."
-          $operaProcesses = Get-Process -Name "opera" -ErrorAction SilentlyContinue
-          foreach ($p in $operaProcesses) {
-              if ($p.MainWindowHandle -ne [IntPtr]::Zero) {
-                  $win32::ShowWindowAsync($p.MainWindowHandle, 2) | Out-Null # 2 = SW_MINIMIZE
+          # 4. Grab RustDesk's main interface container
+          $rdProcess = Get-Process -Name "rustdesk" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1
+          
+          if ($rdProcess) {
+              $hwnd = $rdProcess.MainWindowHandle
+              if ($hwnd -and $hwnd -ne [IntPtr]::Zero) {
+                  Write-Host "Forcing RustDesk window maximization overwrite..."
+                  # 3 = SW_MAXIMIZE forces the window to occupy the total viewport space completely hiding Opera
+                  $win32::ShowWindowAsync($hwnd, 3) | Out-Null
+                  $win32::MoveWindow($hwnd, 0, 0, 1280, 720, $true) | Out-Null
               }
+          } else {
+              Write-Warning "Could not resolve window focus layer targeting."
           }
-
-          # 5. Run a persistence loop for 10 seconds forcing RustDesk to stay over anything else
-          Write-Host "Engaging persistent topmost focus lock for RustDesk window..."
-          for ($i = 0; $i -lt 10; $i++) {
-              $rdProcess = Get-Process -Name "rustdesk" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1
-              if ($rdProcess) {
-                  $hwnd = $rdProcess.MainWindowHandle
-                  if ($hwnd -and $hwnd -ne [IntPtr]::Zero) {
-                      # HWND_TOPMOST (-1) status refresh
-                      $win32::SetWindowPos($hwnd, [IntPtr](-1), 0, 0, 0, 0, 0x0001 -bor 0x0002) | Out-Null
-                  }
-              }
-              Start-Sleep -Seconds 1
-          }
-          Write-Host "Focus sequence complete."
 
       - name: Hide Host Agent Window ONLY (Targeted Minimization)
         run: |
